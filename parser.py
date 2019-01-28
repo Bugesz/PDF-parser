@@ -84,6 +84,61 @@ def get_text(page, blocks):
 
     return texts
 
+# Returns true if two blocks are equal
+def is_equal(block_left, block_right):
+    return (block_left[0] == block_right[0]).all() and (block_left[1] == block_right[1]).all()
+
+# Processing blocks of texts based on their length, indentation and so on
+def process_blocks(blocks, texts, trh=3):
+    blocks = np.asarray(blocks)
+    texts  = np.asarray(texts)
+
+    processed_blocks = []
+
+    while(len(blocks) != 0):
+        block = blocks[0]
+        text  = str(texts[0])
+
+        blocks = blocks[1:]
+        texts  = texts[1:]
+
+        # Block has cut the text when it doesn't supposed to end
+        if (not re.search("\.\s*\\n", text)):
+
+            # Find blocks that are below current block
+            lower_idxs   = np.where(block[0][0] - blocks[:,0][:,0] < 0)
+            lower_blocks = blocks[lower_idxs]
+
+            # Find blocks that start below and in a close indentation level
+            indented_idxs   = np.argwhere(np.abs(block[0][1] - lower_blocks[:,0][:,1]) < trh)
+            indented_blocks = lower_blocks[indented_idxs].reshape(-1, 2, 2)
+
+            # If such blocks found, find merged block ending
+            if (len(indented_blocks) != 0):
+                rectMax = indented_blocks.max(axis=0)
+                processed_blocks.append((block[0], rectMax[1]))
+            # Else block is not merged
+            else:
+                processed_blocks.append(block)
+
+            # Go through blocks and mark them to delete if takes part in merged block
+            for indented_block in indented_blocks:
+                for idx in range(len(blocks)):
+                    if (is_equal(indented_block[0], blocks[idx][0])):
+                        blocks[idx][0] = -1 # Mark for delete
+            
+            # Delete merged blocks
+            idxs = np.argwhere(blocks[:,0][:,0] >= 0)
+            blocks = blocks[idxs].reshape(-1, 2, 2)
+            texts  = texts[idxs]
+        
+        # Blocks is a paragraph, leave as it is
+        else:
+            processed_blocks.append(block)
+
+    return processed_blocks
+
+
 def main():
 
     # Create and argparse object and get the document name
@@ -100,7 +155,8 @@ def main():
     for page in pages:
         blocks = get_blocks(page)
         texts  = get_text(page, blocks)
-
+        
+        processed_blocks = process_blocks(blocks, texts)
 
     if (pages):
         print ("\"{}\" has been succesfully load".format(doc_path))
